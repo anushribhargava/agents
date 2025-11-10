@@ -99,7 +99,7 @@ async def test_stream(stt_factory, sample_rate):
     stt = stt_factory()
     frames, transcript = await make_test_speech(chunk_duration_ms=10, sample_rate=sample_rate)
 
-    stream = stt.stream()
+    stream = stt.stream(get_agent_speaking=lambda: False)
 
     async def _stream_input():
         for frame in frames:
