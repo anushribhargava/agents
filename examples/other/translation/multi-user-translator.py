@@ -226,7 +226,7 @@ class InputTrack:
         self._stt = deepgram.STT(language=language, model="nova-2")
         tokenizer = tokenize.blingfire.SentenceTokenizer()
         self._sentence_stream: tokenize.SentenceStream = tokenizer.stream()
-        self._stt_stream = self._stt.stream(language=language)
+        self._stt_stream = self._stt.stream(language=language, get_agent_speaking=lambda: False)
 
     def start(self):
         self._tasks.append(asyncio.create_task(self._consume_input()))
