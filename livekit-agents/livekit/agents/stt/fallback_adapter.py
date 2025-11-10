@@ -318,6 +318,7 @@ class FallbackRecognizeStream(RecognizeStream):
                 try:
                     main_stream = stt.stream(
                         language=self._language,
+                        get_agent_speaking=lambda: getattr(self, "is_speaking", False),
                         conn_options=dataclasses.replace(
                             self._conn_options,
                             max_retry=self._fallback_adapter._max_retry_per_stt,
@@ -381,6 +382,7 @@ class FallbackRecognizeStream(RecognizeStream):
         if stt_status.recovering_stream_task is None or stt_status.recovering_stream_task.done():
             stream = stt.stream(
                 language=self._language,
+                get_agent_speaking=lambda: getattr(self, "is_speaking", False),
                 conn_options=dataclasses.replace(
                     self._conn_options,
                     max_retry=0,
