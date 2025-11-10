@@ -364,7 +364,9 @@ class Agent:
                 wrapped_stt = stt.StreamAdapter(stt=wrapped_stt, vad=activity.vad)
 
             conn_options = activity.session.conn_options.stt_conn_options
-            async with wrapped_stt.stream(conn_options=conn_options) as stream:
+            # pass the agent speaking accessor (self is the agent in this file)
+            async with wrapped_stt.stream(conn_options=conn_options, get_agent_speaking=lambda: getattr(self, "is_speaking", False)) as stream:
+
 
                 @utils.log_exceptions(logger=logger)
                 async def _forward_input() -> None:
