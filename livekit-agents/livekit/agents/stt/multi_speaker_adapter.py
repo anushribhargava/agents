@@ -122,7 +122,7 @@ class MultiSpeakerAdapterWrapper(RecognizeStream):
                         )
                     )
 
-        stream = self._wrapped_stt.stream(language=self._language, conn_options=self._conn_options)
+        stream = self._wrapped_stt.stream(language=self._language, conn_options=self._conn_options, get_agent_speaking=lambda: getattr(self, "is_speaking", False))
         tasks = [
             asyncio.create_task(
                 _forward_input(stream), name="DiarizationAdapterWrapper.forward_input"
