@@ -18,6 +18,9 @@ from livekit.agents.types import NOT_GIVEN, NotGivenOr
 from livekit.agents.utils import AudioBuffer, is_given
 
 from . import auth
+# add these near the top with the other imports
+from typing import Callable
+from livekit_interrupt_filter import is_filler_only, contains_command
 
 logger = logging.getLogger(__name__)
 
@@ -87,14 +90,24 @@ class STT(stt.STT):
     ) -> stt.SpeechEvent:
         raise NotImplementedError("Not implemented")
 
-    def stream(
+       def stream(
         self,
         *,
         language: NotGivenOr[str] = NOT_GIVEN,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
+        get_agent_speaking: Callable[[], bool] = lambda: False,
     ) -> stt.RecognizeStream:
+        """
+        Return a SpeechStream. Optionally accepts a callable `get_agent_speaking`
+        that should return True when the agent is currently speaking.
+        """
         effective_language = language if is_given(language) else self._opts.language_code
-        return SpeechStream(stt=self, conn_options=conn_options, language=effective_language)
+        return SpeechStream(
+            stt=self,
+            conn_options=conn_options,
+            language=effective_language,
+            get_agent_speaking=get_agent_speaking,
+        )
 
     def log_asr_models(self, asr_service: riva.client.ASRService) -> dict:
         config_response = asr_service.stub.GetRivaSpeechRecognitionConfig(
@@ -116,11 +129,13 @@ class STT(stt.STT):
 
 
 class SpeechStream(stt.SpeechStream):
-    def __init__(self, *, stt: STT, conn_options: APIConnectOptions, language: str):
+        def __init__(self, *, stt: STT, conn_options: APIConnectOptions, language: str, get_agent_speaking: Callable[[], bool] = lambda: False):
         super().__init__(stt=stt, conn_options=conn_options, sample_rate=stt._opts.sample_rate)
         self._stt = stt
         self._language = language
-
+    
+        self._get_agent_speaking = get_agent_speaking
+    
         self._audio_queue = queue.Queue()
         self._shutdown_event = threading.Event()
         self._recognition_thread = None
@@ -236,6 +251,30 @@ class SpeechStream(stt.SpeechStream):
 
                 speech_data = self._convert_to_speech_data(alternative)
 
+                # --- FILLER-IGNORE LOGIC ---
+                # If the agent is currently speaking, and the ASR segment is filler-only,
+                # skip sending the transcript event. If it contains a command, always forward.
+                try:
+                    agent_speaking_now = bool(self._get_agent_speaking())
+                except Exception:
+                    agent_speaking_now = False
+
+                text = (speech_data.text or "").strip()
+                confidence = float(getattr(speech_data, "confidence", 0.0))
+
+                # determine whether to ignore this utterance when agent is speaking
+                ignore_as_filler = False
+                if agent_speaking_now and text:
+                    if is_filler_only(text, confidence) and not contains_command(text):
+                        ignore_as_filler = True
+
+                if ignore_as_filler:
+                    logger.debug("IGNORED_FILLER (NVIDIA STT): %s conf=%s", text, confidence)
+                    # Do not forward INTERIM/FINAL transcript events for filler-only while agent is speaking
+                    # Also avoid sending END_OF_SPEECH for such ignored segments
+                    continue
+
+                # forward events normally
                 if is_final:
                     self._event_loop.call_soon_threadsafe(
                         self._event_ch.send_nowait,
@@ -260,6 +299,7 @@ class SpeechStream(stt.SpeechStream):
                             alternatives=[speech_data],
                         ),
                     )
+
 
         except Exception:
             logger.exception("Error handling response")
