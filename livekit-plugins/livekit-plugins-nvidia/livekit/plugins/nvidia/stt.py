@@ -242,25 +242,16 @@ class SpeechStream(stt.SpeechStream):
 
                 self._request_id = f"nvidia-{id(response)}"
 
-                if not self._speaking and transcript.strip():
-                    self._speaking = True
-                    self._event_loop.call_soon_threadsafe(
-                        self._event_ch.send_nowait,
-                        stt.SpeechEvent(type=stt.SpeechEventType.START_OF_SPEECH),
-                    )
-
                 speech_data = self._convert_to_speech_data(alternative)
+                text = (speech_data.text or "").strip()
+                confidence = float(getattr(speech_data, "confidence", 0.0))
 
                 # --- FILLER-IGNORE LOGIC ---
-                # If the agent is currently speaking, and the ASR segment is filler-only,
-                # skip sending the transcript event. If it contains a command, always forward.
                 try:
                     agent_speaking_now = bool(self._get_agent_speaking())
                 except Exception:
                     agent_speaking_now = False
 
-                text = (speech_data.text or "").strip()
-                confidence = float(getattr(speech_data, "confidence", 0.0))
 
                 # determine whether to ignore this utterance when agent is speaking
                 ignore_as_filler = False
@@ -269,17 +260,23 @@ class SpeechStream(stt.SpeechStream):
                         ignore_as_filler = True
 
                 if ignore_as_filler:
-                    logger.debug("IGNORED_FILLER (NVIDIA STT): %s conf=%s", text, confidence)
+                    logger.debug("[INTERRUPT_FILTER] IGNORED_FILLER: %r conf=%.2f speaking=%s", text, confidence, agent_speaking_now)
                     # Do not forward INTERIM/FINAL transcript events for filler-only while agent is speaking
                     # Also avoid sending END_OF_SPEECH for such ignored segments
                     continue
-                
-                logger.debug("[INTERRUPT_FILTER] transcript=%r is_final=%s request_id=%s speaking=%s",transcript, is_final, self._request_id, getattr(self, "_get_agent_speaking", lambda: False)())
-                try:
-                    from livekit_interrupt_filter import is_filler_only, contains_command
-                    logger.debug("[INTERRUPT_FILTER] is_filler_only=%s contains_command=%s",is_filler_only(transcript, getattr(alternative, "confidence", 0.0)),contains_command(transcript))
-                except Exception:
-                    logger.debug("[INTERRUPT_FILTER] no livekit_interrupt_filter available")
+
+                logger.debug("[INTERRUPT_FILTER] FORWARDED: %r is_final=%s speaking=%s", text, is_final, agent_speaking_now)
+                # --- END FILLER-IGNORE LOGIC ---
+
+
+                # *** CORRECTED LOGIC ***
+                # Only send START_OF_SPEECH for non-ignored utterances
+                if not self._speaking and transcript.strip():
+                    self._speaking = True
+                    self._event_loop.call_soon_threadsafe(
+                        self._event_ch.send_nowait,
+                        stt.SpeechEvent(type=stt.SpeechEventType.START_OF_SPEECH),
+                    )
 
 
                 # forward events normally
