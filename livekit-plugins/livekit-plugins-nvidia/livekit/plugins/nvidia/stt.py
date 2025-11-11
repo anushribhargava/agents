@@ -90,7 +90,7 @@ class STT(stt.STT):
     ) -> stt.SpeechEvent:
         raise NotImplementedError("Not implemented")
 
-       def stream(
+    def stream(
         self,
         *,
         language: NotGivenOr[str] = NOT_GIVEN,
@@ -129,13 +129,13 @@ class STT(stt.STT):
 
 
 class SpeechStream(stt.SpeechStream):
-        def __init__(self, *, stt: STT, conn_options: APIConnectOptions, language: str, get_agent_speaking: Callable[[], bool] = lambda: False):
+    def __init__(self, *, stt: STT, conn_options: APIConnectOptions, language: str, get_agent_speaking: Callable[[], bool] = lambda: False):
         super().__init__(stt=stt, conn_options=conn_options, sample_rate=stt._opts.sample_rate)
         self._stt = stt
         self._language = language
-    
+
         self._get_agent_speaking = get_agent_speaking
-    
+
         self._audio_queue = queue.Queue()
         self._shutdown_event = threading.Event()
         self._recognition_thread = None
@@ -273,6 +273,14 @@ class SpeechStream(stt.SpeechStream):
                     # Do not forward INTERIM/FINAL transcript events for filler-only while agent is speaking
                     # Also avoid sending END_OF_SPEECH for such ignored segments
                     continue
+                
+                logger.debug("[INTERRUPT_FILTER] transcript=%r is_final=%s request_id=%s speaking=%s",transcript, is_final, self._request_id, getattr(self, "_get_agent_speaking", lambda: False)())
+                try:
+                    from livekit_interrupt_filter import is_filler_only, contains_command
+                    logger.debug("[INTERRUPT_FILTER] is_filler_only=%s contains_command=%s",is_filler_only(transcript, getattr(alternative, "confidence", 0.0)),contains_command(transcript))
+                except Exception:
+                    logger.debug("[INTERRUPT_FILTER] no livekit_interrupt_filter available")
+
 
                 # forward events normally
                 if is_final:
